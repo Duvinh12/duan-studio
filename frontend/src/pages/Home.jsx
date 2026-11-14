@@ -2,7 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// Tự động chuẩn hóa URL: dù trên Vercel có quên đuôi /api thì code vẫn tự động gắn chuẩn
+const RAW_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = RAW_API_URL.endsWith('/api')
+  ? RAW_API_URL
+  : `${RAW_API_URL.replace(/\/$/, '')}/api`;
 
 // 4 SLIDE BANNER CHÍNH: Thiết kế Editorial tự nhiên
 const HERO_SLIDES = [
@@ -81,8 +85,19 @@ export default function Home() {
   useEffect(() => {
     axios
       .get(`${API_URL}/products`)
-      .then((res) => setProducts(res.data || []))
-      .catch(() => {});
+      .then((res) => {
+        const list = Array.isArray(res.data)
+          ? res.data
+          : Array.isArray(res.data?.products)
+          ? res.data.products
+          : Array.isArray(res.data?.data)
+          ? res.data.data
+          : [];
+        setProducts(list);
+      })
+      .catch(() => {
+        setProducts([]);
+      });
   }, []);
 
   useEffect(() => {
@@ -99,13 +114,16 @@ export default function Home() {
     setSelectedCategory(catParam || 'Tất cả');
   }, [searchParams]);
 
-  const filteredProducts = products
+  const safeProducts = Array.isArray(products) ? products : [];
+
+  const filteredProducts = safeProducts
     .filter((p) => {
+      if (!p || typeof p !== 'object') return false;
       const matchCategory = selectedCategory === 'Tất cả' || p.category === selectedCategory;
       const matchSearch =
         !searchQuery.trim() ||
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.name && p.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (p.category && p.category.toLowerCase().includes(searchQuery.toLowerCase())) ||
         (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()));
 
       const price = p.variants?.[0]?.price || 0;
@@ -124,7 +142,7 @@ export default function Home() {
       return 0;
     });
 
-  const groupedCategories = [...new Set(filteredProducts.map((p) => p.category))];
+  const groupedCategories = [...new Set(filteredProducts.map((p) => p.category).filter(Boolean))];
 
   const handleCopyVoucher = (code) => {
     navigator.clipboard.writeText(code);
@@ -188,7 +206,6 @@ export default function Home() {
 
             {/* Header Banner */}
             <div className="relative z-10 flex justify-between items-center">
-             
               <button
                 onClick={() => setShowSideBanners(false)}
                 className="w-6 h-6 rounded-full bg-white/10 text-white/80 hover:text-white text-xs flex items-center justify-center hover:bg-white/20 transition"
@@ -471,10 +488,12 @@ export default function Home() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     {itemsInCategory.map((product) => {
                       const firstPrice = product.variants?.[0]?.price || 0;
-                      const totalAvailable = product.variants?.reduce(
-                        (sum, v) => sum + Math.max(0, v.stock - (v.reservedStock || 0)),
-                        0
-                      );
+                      const totalAvailable = Array.isArray(product.variants)
+                        ? product.variants.reduce(
+                            (sum, v) => sum + Math.max(0, (v.stock || 0) - (v.reservedStock || 0)),
+                            0
+                          )
+                        : 0;
 
                       return (
                         <Link
