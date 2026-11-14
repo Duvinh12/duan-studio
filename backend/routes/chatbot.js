@@ -6,10 +6,10 @@ const Product = require('../models/Product');
 const Order = require('../models/Order');
 const Coupon = require('../models/Coupon');
 
-// CẤU HÌNH LIÊN KẾT ZALO & MÔ HÌNH DUY NHẤT
-const ZALO_PHONE = '0978240104';
+// CẤU HÌNH LIÊN KẾT ZALO 
+
+const ZALO_PHONE = '0978240104'; // 
 const ZALO_LINK = `https://zalo.me/${ZALO_PHONE}`;
-const GEMINI_MODEL = 'gemini-2.5-flash';
 
 const CUSTOM_MEMORY_FILE = path.join(__dirname, '../custom_bot_memory.json');
 
@@ -143,12 +143,61 @@ X. CÚ PHÁP ĐÍNH KÈM THẺ SẢN PHẨM (BẮT BUỘC KHI CÓ NHẮC TỚI S
   (Chỉ copy đúng chuỗi ID trong ngoặc vuông [ID: ...] ở mục VII, tối đa 4 sản phẩm).`;
 };
 
-// Gọi trực tiếp 1 mô hình duy nhất (gemini-2.5-flash)
+let cachedValidModels = null;
+
+const getAvailableGeminiModels = async (apiKey) => {
+  if (cachedValidModels && cachedValidModels.length > 0) {
+    return cachedValidModels;
+  }
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+    );
+    const data = await res.json();
+    if (res.ok && Array.isArray(data.models)) {
+      const supported = data.models
+        .filter(
+          (m) =>
+            Array.isArray(m.supportedGenerationMethods) &&
+            m.supportedGenerationMethods.includes('generateContent') &&
+            m.name.includes('gemini') &&
+            !m.name.includes('vision') &&
+            !m.name.includes('embedding') &&
+            !m.name.includes('imagen') &&
+            !m.name.includes('tts')
+        )
+        .map((m) => m.name.replace('models/', ''));
+
+      supported.sort((a, b) => {
+        const score = (name) => {
+          if (name.includes('2.5-flash')) return 100;
+          if (name.includes('2.0-flash')) return 90;
+          if (name.includes('flash-latest')) return 85;
+          if (name.includes('flash')) return 70;
+          if (name.includes('pro')) return 60;
+          return 10;
+        };
+        return score(b) - score(a);
+      });
+
+      if (supported.length > 0) {
+        cachedValidModels = supported;
+        return supported;
+      }
+    }
+  } catch {
+    // Bỏ qua
+  }
+  return ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest'];
+};
+
+// Gọi Gemini Multi-Turn Chat API với native systemInstruction
 const callGeminiConversation = async (apiKey, systemInstruction, history, currentMessage) => {
+  const models = await getAvailableGeminiModels(apiKey);
   const formattedContents = [];
 
-  // Giữ 10 lượt hội thoại gần nhất để xử lý nhanh và nhớ ngữ cảnh
-  const recentHistory = (Array.isArray(history) ? history : []).slice(-10);
+  // Giữ 16 lượt hội thoại gần nhất để hiểu trọn vẹn ngữ cảnh cuộc trò chuyện
+  const recentHistory = (Array.isArray(history) ? history : []).slice(-16);
 
   for (const msg of recentHistory) {
     if (!msg?.text || !String(msg.text).trim()) continue;
@@ -175,41 +224,43 @@ const callGeminiConversation = async (apiKey, systemInstruction, history, curren
     lastTurn.parts[0].text += '\n' + currentMessage;
   }
 
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: systemInstruction }]
-        },
-        contents: formattedContents,
-        generationConfig: {
-          temperature: 0.35,
-          topP: 0.9,
-          maxOutputTokens: 500,
-          thinkingConfig: { thinkingBudget: 0 }
-        }
-      })
-    });
+  let lastError = '';
 
-    const data = await response.json();
-    if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-      return {
-        success: true,
-        model: GEMINI_MODEL,
-        rawText: data.candidates[0].content.parts[0].text
-      };
+  for (const modelName of models.slice(0, 5)) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: systemInstruction }]
+          },
+          contents: formattedContents,
+          generationConfig: {
+            temperature: 0.35, // Hạ nhiệt độ để bot suy luận chuẩn xác và tuân thủ phạm vi 100%
+            topP: 0.9,
+            maxOutputTokens: 1000
+          }
+        })
+      });
+
+      const data = await response.json();
+      if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+        return {
+          success: true,
+          model: modelName,
+          rawText: data.candidates[0].content.parts[0].text
+        };
+      } else {
+        lastError = `${modelName}: ${data?.error?.message || response.status}`;
+      }
+    } catch (err) {
+      lastError = err.message;
     }
-
-    return {
-      success: false,
-      error: `${GEMINI_MODEL}: ${data?.error?.message || response.status}`
-    };
-  } catch (err) {
-    return { success: false, error: err.message };
   }
+
+  return { success: false, error: lastError };
 };
 
 // POST /api/chatbot
