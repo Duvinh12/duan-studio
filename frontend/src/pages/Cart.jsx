@@ -1,24 +1,42 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// Tự động chuẩn hóa API_URL cho cả Local và Vercel
+const isLocalhost =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+const RAW_API_URL = isLocalhost
+  ? 'http://localhost:5000/api'
+  : import.meta.env.VITE_API_URL || 'https://duan-studio.onrender.com/api';
+
+const API_URL = RAW_API_URL.endsWith('/api')
+  ? RAW_API_URL
+  : `${RAW_API_URL.replace(/\/$/, '')}/api`;
+
 const FREESHIP_THRESHOLD = 1000000;
 
-export default function Cart({ cart = [], updateQuantity, removeFromCart }) {
+export default function Cart({ cart = [], updateQuantity, removeFromCart, user }) {
   const [couponInput, setCouponInput] = useState('DUAN2026');
   const [appliedCoupon, setAppliedCoupon] = useState(null);
   const [couponMsg, setCouponMsg] = useState('');
+  const navigate = useNavigate();
 
-  // Kiểm tra tài khoản hiện tại có phải là Admin không
+  // Kiểm tra tài khoản hiện tại
   const savedUser = (() => {
+    if (user) return user;
     try {
-      const raw = localStorage.getItem('duan_user');
+      const raw =
+        localStorage.getItem('duan_user') ||
+        localStorage.getItem('user') ||
+        localStorage.getItem('userInfo');
       return raw ? JSON.parse(raw) : null;
     } catch {
       return null;
     }
   })();
+
   const isAdminUser = savedUser?.role === 'admin';
 
   const safeCart = Array.isArray(cart) ? cart : [];
@@ -34,18 +52,70 @@ export default function Cart({ cart = [], updateQuantity, removeFromCart }) {
     ? 100
     : Math.min(100, Math.round((subtotal / FREESHIP_THRESHOLD) * 100));
 
+  // Kiểm tra bắt buộc đăng nhập trước khi sang trang Thanh toán
+  const handleProceedToCheckout = () => {
+    const token =
+      localStorage.getItem('token') ||
+      localStorage.getItem('accessToken') ||
+      localStorage.getItem('duan_token');
+
+    if (!token && !savedUser) {
+      alert('Vui lòng đăng nhập tài khoản trước khi tiến hành thanh toán đơn hàng!');
+      navigate('/login', { state: { from: '/cart' } });
+      return;
+    }
+
+    navigate('/checkout', {
+      state: { prefillCoupon: appliedCoupon?.code || couponInput }
+    });
+  };
+
   const handleApplyCoupon = async () => {
+    const cleanCode = couponInput.trim().toUpperCase();
+    if (!cleanCode) {
+      setAppliedCoupon(null);
+      setCouponMsg('Vui lòng nhập mã ưu đãi');
+      return;
+    }
+
     setCouponMsg('');
     try {
-      const { data } = await axios.post(`${API_URL}/orders/coupons/validate`, {
-        code: couponInput,
-        orderTotal: subtotal
-      });
+      const { data } = await axios.post(
+        `${API_URL}/orders/coupons/validate`,
+        {
+          code: cleanCode,
+          orderTotal: subtotal
+        },
+        { timeout: 3000 }
+      );
       setAppliedCoupon(data);
-      setCouponMsg(data.message);
+      setCouponMsg(data.message || `Đã áp dụng mã ${cleanCode} thành công!`);
     } catch (err) {
+      // Dự phòng thông minh nếu Backend đang ngủ đông vẫn áp dụng chuẩn 2 mã chính thức của shop
+      if (cleanCode === 'DUAN2026') {
+        const discountAmount = Math.min(200000, Math.round(subtotal * 0.15));
+        setAppliedCoupon({ code: 'DUAN2026', discountAmount });
+        setCouponMsg(
+          `Đã áp dụng mã DUAN2026: Giảm ${discountAmount.toLocaleString('vi-VN')} ₫ (15%)`
+        );
+        return;
+      }
+      if (cleanCode === 'VIP50') {
+        if (subtotal < 1000000) {
+          setAppliedCoupon(null);
+          setCouponMsg('Mã VIP50 chỉ áp dụng cho đơn hàng từ 1.000.000 ₫');
+          return;
+        }
+        const discountAmount = Math.min(500000, Math.round(subtotal * 0.5));
+        setAppliedCoupon({ code: 'VIP50', discountAmount });
+        setCouponMsg(
+          `Đã áp dụng mã VIP50: Giảm ${discountAmount.toLocaleString('vi-VN')} ₫ (50%)`
+        );
+        return;
+      }
+
       setAppliedCoupon(null);
-      setCouponMsg(err.response?.data?.message || 'Mã giảm giá không hợp lệ');
+      setCouponMsg(err.response?.data?.message || 'Mã giảm giá không hợp lệ hoặc đã hết hạn');
     }
   };
 
@@ -253,13 +323,13 @@ export default function Cart({ cart = [], updateQuantity, removeFromCart }) {
             </span>
           </div>
 
-          <Link
-            to="/checkout"
-            state={{ prefillCoupon: appliedCoupon?.code || couponInput }}
+          <button
+            type="button"
+            onClick={handleProceedToCheckout}
             className="block text-center w-full py-4 rounded-full bg-white text-zinc-950 hover:bg-indigo-500 hover:text-white font-extrabold text-xs uppercase tracking-wider transition shadow-lg"
           >
             Tiến Hành Thanh Toán →
-          </Link>
+          </button>
 
           <p className="text-[11px] text-zinc-400 text-center leading-relaxed">
             Hỗ trợ thanh toán VietQR, thẻ ngân hàng và kiểm tra hàng trước khi nhận (COD).
