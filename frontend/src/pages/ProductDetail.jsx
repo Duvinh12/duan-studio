@@ -2,9 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useLocation, useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// Tự động chuẩn hóa API_URL cho cả Local và Vercel
+const isLocalhost =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-export default function ProductDetail({ addToCart }) {
+const RAW_API_URL = isLocalhost
+  ? 'http://localhost:5000/api'
+  : import.meta.env.VITE_API_URL || 'https://duan-studio.onrender.com/api';
+
+const API_URL = RAW_API_URL.endsWith('/api')
+  ? RAW_API_URL
+  : `${RAW_API_URL.replace(/\/$/, '')}/api`;
+
+export default function ProductDetail({ addToCart, user }) {
   const { id } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -63,7 +74,7 @@ export default function ProductDetail({ addToCart }) {
     return () => {
       isMounted = false;
     };
-  }, [id]);
+  }, [id, location.state]);
 
   // Khi khách chọn ảnh để ướm thử -> Gọi thẳng Drawer thử đồ nội bộ của DUAN.STUDIO
   const handleQuickTryOnFile = (e) => {
@@ -129,6 +140,36 @@ export default function ProductDetail({ addToCart }) {
   // Tách danh sách Màu sắc và Kích cỡ riêng biệt như các web thời trang lớn
   const uniqueColors = [...new Set((product.variants || []).map((v) => v.color))];
 
+  // KIỂM TRA BẮT BUỘC ĐĂNG NHẬP TRƯỚC KHI THÊM GIỎ HÀNG HOẶC MUA NGAY
+  const requireAuthentication = () => {
+    const token =
+      localStorage.getItem('token') ||
+      localStorage.getItem('accessToken') ||
+      localStorage.getItem('duan_token');
+    const savedUser =
+      user ||
+      localStorage.getItem('user') ||
+      localStorage.getItem('userInfo') ||
+      localStorage.getItem('duan_user');
+
+    let isValidUser = Boolean(token);
+    if (!isValidUser && savedUser) {
+      if (typeof savedUser === 'object') {
+        isValidUser = true;
+      } else if (typeof savedUser === 'string') {
+        const trimmed = savedUser.trim();
+        isValidUser = trimmed !== '' && trimmed !== 'null' && trimmed !== 'undefined';
+      }
+    }
+
+    if (!isValidUser) {
+      alert('Vui lòng đăng nhập tài khoản trước khi thêm vào giỏ hàng hoặc mua sản phẩm!');
+      navigate('/login', { state: { from: location.pathname } });
+      return false;
+    }
+    return true;
+  };
+
   const createCartItem = () => ({
     product: product._id,
     name: product.name,
@@ -141,12 +182,16 @@ export default function ProductDetail({ addToCart }) {
   });
 
   const handleAddToCartOnly = () => {
+    if (!requireAuthentication()) return;
+
     addToCart(createCartItem());
     setAddedToast(true);
     setTimeout(() => setAddedToast(false), 2500);
   };
 
   const handleBuyNowRedirect = () => {
+    if (!requireAuthentication()) return;
+
     const item = createCartItem();
     addToCart(item);
     navigate('/checkout', { state: { buyNowItem: item } });
@@ -279,7 +324,7 @@ export default function ProductDetail({ addToCart }) {
                     }`}
                   >
                     <span className="text-xs block">{v.size}</span>
-                    { uniqueColors.length > 1 && (
+                    {uniqueColors.length > 1 && (
                       <span className={`text-[10px] block truncate mt-0.5 ${isSelected ? 'text-zinc-300' : 'text-zinc-400'}`}>
                         {v.color}
                       </span>
@@ -300,7 +345,7 @@ export default function ProductDetail({ addToCart }) {
             )}
           </div>
 
-          {/* 3. SỐ LƯỢNG & NÚT ƯỚM THỬ TỐI GIẢN (Tích hợp sẵn, không cần cài Extension) */}
+          {/* 3. SỐ LƯỢNG & NÚT ƯỚM THỬ TỐI GIẢN */}
           <div className="mt-6 flex items-center gap-4">
             <div className="flex items-center border border-zinc-300 bg-white h-11">
               <button
@@ -320,7 +365,6 @@ export default function ProductDetail({ addToCart }) {
               </button>
             </div>
 
-            {/* Nút ướm thử trang phục nội bộ của riêng Website (Thay cho hộp tím cũ) */}
             <button
               type="button"
               onClick={() => navigate('/anywear-guide', { state: { product } })}
