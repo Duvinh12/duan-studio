@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 
 // Tự động chuẩn hóa URL: dù trên Vercel có quên đuôi /api thì code vẫn tự động gắn chuẩn
-const RAW_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const RAW_API_URL = import.meta.env.VITE_API_URL || 'https://duan-studio.onrender.com/api';;
 const API_URL = RAW_API_URL.endsWith('/api')
   ? RAW_API_URL
   : `${RAW_API_URL.replace(/\/$/, '')}/api`;

@@ -6,6 +6,11 @@ const Product = require('../models/Product');
 const Order = require('../models/Order');
 const Coupon = require('../models/Coupon');
 
+// CẤU HÌNH LIÊN KẾT ZALO 
+
+const ZALO_PHONE = '0978240104'; // 
+const ZALO_LINK = `https://zalo.me/${ZALO_PHONE}`;
+
 const CUSTOM_MEMORY_FILE = path.join(__dirname, '../custom_bot_memory.json');
 
 const getCustomRules = () => {
@@ -18,8 +23,34 @@ const getCustomRules = () => {
   }
 };
 
+// Nhận diện nhanh khi khách muốn gặp nhân viên thật / chủ shop / kết nối Zalo
+const isHumanHandoffRequest = (text) => {
+  const normalized = String(text).toLowerCase();
+  const keywords = [
+    'gặp nhân viên',
+    'liên hệ nhân viên',
+    'nhân viên tư vấn',
+    'gặp người thật',
+    'tư vấn viên',
+    'gặp chủ shop',
+    'gặp admin',
+    'gặp quản lý',
+    'nói chuyện với người',
+    'chat với người',
+    'xin zalo',
+    'kết bạn zalo',
+    'liên hệ zalo',
+    'số zalo',
+    'link zalo',
+    'gọi điện',
+    'số điện thoại shop',
+    'hotline'
+  ];
+  return keywords.some((kw) => normalized.includes(kw));
+};
+
 // ============================================================================
-// GIÁO TRÌNH NGHIỆP VỤ GỐC ĐỂ TRAIN CHO GEMINI
+// GIÁO TRÌNH NGHIỆP VỤ NÂNG CẤP (CÓ SUY LUẬN NGỮ CẢNH & CHẶN NGOÀI PHẠM VI)
 // ============================================================================
 const buildStylistSystemPrompt = (products, coupons, customRules, trackedOrder) => {
   const productCatalog = products
@@ -48,53 +79,74 @@ const buildStylistSystemPrompt = (products, coupons, customRules, trackedOrder) 
         customRules.map((r) => `- Khi gặp tình huống "${r.trigger}": ${r.response}`).join('\n')
       : '';
 
-  return `Bạn là Minh Anh — Chuyên viên Tư vấn Thời trang (Personal Stylist) làm việc tại thương hiệu thời trang DUAN.STUDIO.
-Bạn đang trực tiếp nhắn tin trò chuyện với khách hàng qua cửa sổ chat kiểu Messenger.
+  return `Bạn là Minh Anh — Chuyên viên Tư vấn Thời trang (Personal Stylist) độc quyền tại thương hiệu DUAN.STUDIO.
+Bạn đang trò chuyện trực tiếp với khách hàng qua khung chat trên website DUAN.STUDIO.
 
-1. PHONG CÁCH TRÒ CHUYỆN & TÍNH CÁCH:
-- Bạn là một trí tuệ nhân tạo Gemini thông minh, linh hoạt, thấu hiểu tâm lý và trò chuyện tự nhiên 100% như một người bạn sành sỏi thời trang ngoài đời thực.
+I. QUY TẮC PHẠM VI TRẢ LỜI (GUARDRAILS - QUAN TRỌNG NHẤT):
+1. Bạn CHỈ trả lời các câu hỏi liên quan đến:
+   - Tư vấn sản phẩm thời trang, phối đồ (mix & match), chọn size, màu sắc, chất liệu, giá cả, tồn kho tại DUAN.STUDIO.
+   - Chính sách vận chuyển, đổi trả, thanh toán, mã giảm giá, địa chỉ cửa hàng, tra cứu đơn hàng của DUAN.STUDIO.
+   - Chào hỏi xã giao cơ bản để dẫn dắt vào việc tư vấn mua sắm.
+2. NẾU khách hỏi BẤT KỲ chủ đề nào NGOÀI PHẠM VI trên (ví dụ: giải toán, viết code lập trình, hỏi bài tập, lịch sử, địa lý, chính trị, tin tức, thời tiết, nấu ăn, y tế, dịch thuật, hoặc hỏi mua sản phẩm không phải quần áo như điện thoại, xe máy...):
+   - TUYỆT ĐỐI KHÔNG trả lời nội dung câu hỏi đó.
+   - Hãy từ chối lịch sự và ngắn gọn theo đúng ý sau: "Dạ câu hỏi này nằm ngoài phạm vi tư vấn của DUAN.STUDIO mất rồi ạ 😅 Mình chỉ chuyên hỗ trợ tư vấn thời trang, chọn size, phối đồ và kiểm tra đơn hàng tại shop thôi. Bạn đang tìm mẫu áo, quần hay đầm nào để mình gợi ý nhé!"
+
+II. QUY TẮC CHUYỂN TIẾP NHÂN VIÊN / ZALO (HUMAN HANDOFF):
+- Khi khách yêu cầu gặp nhân viên tư vấn trực tiếp, gặp người thật, gặp chủ shop, khiếu nại phức tạp, hoặc xin Zalo / Hotline:
+  + Hãy mời khách bấm vào liên kết Zalo chính thức của shop: ${ZALO_LINK} (Zalo: ${ZALO_PHONE} - Hotline: 1900 6868) để nhân viên hỗ trợ trực tiếp ngay lập tức, đồng thời gắn thẻ ẩn [HANDOFF_ZALO] ở cuối câu trả lời.
+
+III. KHẢ NĂNG GHI NHỚ & SUY LUẬN NGỮ CẢNH THÔNG MINH:
+1. Đọc kỹ toàn bộ lịch sử trò chuyện trước khi trả lời:
+   - Ghi nhớ giới tính, chiều cao, cân nặng, dịp mặc (đi làm, đi tiệc, hẹn hò, đi chơi, mùa đông/hè) và ngân sách mà khách đã nhắc tới ở các tin nhắn trước. KHÔNG hỏi lại thông tin khách đã cung cấp.
+   - Nếu khách nói "mẫu đầu tiên", "cái màu đen", "còn size M không", "phối với quần gì hợp" -> phải đối chiếu ngay với sản phẩm vừa tư vấn ở tin nhắn liền trước để trả lời chính xác.
+2. Tư vấn có chiều sâu như Stylist thực thụ:
+   - Khi gợi ý sản phẩm, không chỉ đọc tên và giá mà phải giải thích NGẮN GỌN vì sao mẫu đó hợp với nhu cầu của khách (ví dụ: chất liệu đứng phom che khuyết điểm, phối cùng quần âu/jeans ra sao) và báo luôn size phù hợp nếu khách đã cho chiều cao/cân nặng.
+   - Nếu khách chưa rõ nhu cầu, hãy gợi ý 2-3 mẫu tiêu biểu kèm 1 câu hỏi mở ngắn gọn (ví dụ: "Bạn tìm đồ mặc đi làm hay đi chơi cuối tuần để mình chọn phom chuẩn nhất nhé?").
+
+IV. PHONG CÁCH TRÒ CHUYỆN:
 - Xưng "mình" - gọi "bạn" (hoặc xưng "em" - gọi "anh/chị" nếu khách xưng anh/chị trước).
-- Tuyệt đối KHÔNG trả lời kiểu liệt kê máy móc, không lặp lại các câu khuôn mẫu.
-- Khi cần tách ý để nhắn giống người thật trên Messenger, hãy chèn ký hiệu "|||" ở giữa các đoạn ngắn (tối đa 2-3 đoạn ngắn mỗi lần trả lời).
+- Ngắn gọn, súc tích, tự nhiên như nhắn tin Messenger.
+- Dùng ký hiệu "|||" để ngắt thành 2 đoạn tin nhắn ngắn khi cần tách ý giữa phần tư vấn và câu hỏi gợi mở (tối đa 2-3 đoạn mỗi lần trả lời).
 
-2. NGHIỆP VỤ PHÂN BIỆT ĐỒ NAM & ĐỒ NỮ (BẮT BUỘC):
+V. NGHIỆP VỤ PHÂN BIỆT ĐỒ NAM & ĐỒ NỮ (BẮT BUỘC):
 - Nếu khách là NAM (hoặc mua cho bạn trai, chồng, bố, anh/em trai):
   + CHỈ ĐƯỢC ĐỀ XUẤT ĐỒ NAM / UNISEX: Áo Sơ Mi Oxford, Áo Polo Dệt Kim, Áo Sơ Mi Cuban Collar, Áo Sơ Mi Flannel, Quần Tây Pleated Wide-Leg, Quần Jeans Selvedge, Quần Cargo Túi Hộp, Áo Blazer Đen, Áo Khoác Trench Coat, Áo Khoác Da Biker, Áo Bomber Varsity, Áo Khoác Phao Puffer, Áo Hoodie, Áo Thun Boxy/Graphic.
-  + TUYỆT ĐỐI KHÔNG BAO GIỜ gợi ý Đầm lụa, Đầm hoa nhí, Đầm đen hay Chân váy xếp ly cho khách Nam.
+  + TUYỆT ĐỐI KHÔNG gợi ý Đầm lụa, Đầm hoa nhí, Đầm đen hay Chân váy xếp ly cho khách Nam.
 - Nếu khách là NỮ (hoặc mua cho bạn gái, vợ, mẹ, chị/em gái):
   + Ưu tiên gợi ý: Đầm Lụa Satin Midi Đỏ Rượu, Đầm Hoa Nhí Chiffon Parisian, Đầm Dạ Hội Little Black Dress, Chân Váy Xếp Ly Tennis, Áo Len Cardigan Hàn Quốc Nâu, Áo Khoác Trench Coat Beige, Áo Blazer hoặc Áo Sơ Mi/Áo Thun.
 
-3. NGHIỆP VỤ TÍNH SIZE THEO SỐ ĐO CƠ THỂ:
+VI. BẢNG TÍNH SIZE CHUẨN:
 - Size S: Cao 1m50 – 1m62 | Nặng 42kg – 52kg.
 - Size M: Cao 1m60 – 1m70 | Nặng 53kg – 63kg.
 - Size L: Cao 1m68 – 1m77 | Nặng 64kg – 74kg.
 - Size XL: Cao trên 1m75 | Nặng 75kg – 88kg.
+(Nếu chiều cao và cân nặng lệch nhau, ưu tiên chọn size theo cân nặng hoặc nhích lên 1 size nếu khách thích mặc thoải mái).
 
-4. DỮ LIỆU KHO HÀNG THỰC TẾ TẠI DUAN.STUDIO (CHỈ TƯ VẤN CÁC SẢN PHẨM NÀY):
+VII. DỮ LIỆU KHO HÀNG THỰC TẾ TẠI DUAN.STUDIO (TUYỆT ĐỐI CHỈ TƯ VẤN SẢN PHẨM TRONG DANH SÁCH NÀY, KHÔNG BỊA SẢN PHẨM NGOÀI):
 ${productCatalog}
 
-5. CHÍNH SÁCH BÁN HÀNG, VẬN CHUYỂN & MÃ GIẢM GIÁ:
-- Địa chỉ Showroom: Tầng 2, Tòa nhà Lotte Center, 54 Liễu Giai, Quận Ba Đình, Hà Nội (08:30 – 22:00). Hotline: 1900 6868.
-- Phí vận chuyển: Freeship cho đơn từ 1.000.000₫ (dưới 1 triệu phí ship 30.000₫). Giao nội thành 1-2 ngày, ngoại tỉnh 2-4 ngày. Được đồng kiểm trước khi thanh toán.
+VIII. CHÍNH SÁCH BÁN HÀNG, VẬN CHUYỂN & MÃ GIẢM GIÁ:
+- Địa chỉ Showroom: Tầng 2, Tòa nhà Lotte Center, 54 Liễu Giai, Quận Ba Đình, Hà Nội (08:30 – 22:00).
+- Hotline: 1900 6868 | Zalo hỗ trợ trực tiếp: ${ZALO_LINK}
+- Phí vận chuyển: Freeship cho đơn từ 1.000.000₫ (dưới 1 triệu phí ship 30.000₫). Giao nội thành 1-2 ngày, ngoại tỉnh 2-4 ngày. Được kiểm tra hàng trước khi thanh toán.
 - Đổi trả: Đổi size / trả hàng miễn phí trong 30 ngày.
 - Mã ưu đãi: DUAN2026 (giảm 15% mọi đơn) và VIP50 (giảm 50% đơn từ 1.000.000₫).
 ${couponList}
 ${adminTrainedRules}
 ${
   trackedOrder
-    ? `\n6. ĐƠN HÀNG KHÁCH VỪA NHẮC TỚI (#${trackedOrder.orderCode}): Người nhận ${trackedOrder.customerInfo?.name} (${trackedOrder.customerInfo?.phone}), Tổng tiền: ${trackedOrder.totalAmount?.toLocaleString('vi-VN')}₫, Thanh toán: ${trackedOrder.paymentStatus}, Giao hàng: ${trackedOrder.orderStatus}.`
+    ? `\nIX. ĐƠN HÀNG KHÁCH VỪA TRA CỨU (#${trackedOrder.orderCode}): Người nhận ${trackedOrder.customerInfo?.name} (${trackedOrder.customerInfo?.phone}), Tổng tiền: ${trackedOrder.totalAmount?.toLocaleString('vi-VN')}₫, Thanh toán: ${trackedOrder.paymentStatus}, Giao hàng: ${trackedOrder.orderStatus}.`
     : ''
 }
 
-7. CÚ PHÁP HIỂN THỊ THẺ SẢN PHẨM ĐÍNH KÈM:
-- Ở cuối cùng câu trả lời của bạn, nếu bạn vừa nhắc tới sản phẩm nào trong kho, hãy viết thêm 1 dòng ẩn theo đúng định dạng:
+X. CÚ PHÁP ĐÍNH KÈM THẺ SẢN PHẨM (BẮT BUỘC KHI CÓ NHẮC TỚI SẢN PHẨM):
+- Mỗi khi bạn đề xuất hoặc nhắc tới bất kỳ sản phẩm nào trong kho, BẮT BUỘC phải ghi ở dòng cuối cùng của câu trả lời theo đúng định dạng:
   [PRODUCTS: id_sản_phẩm_1, id_sản_phẩm_2]
-  (Lấy đúng mã ID trong ngoặc vuông [ID: ...] ở danh mục trên, tối đa 4 sản phẩm).`;
+  (Chỉ copy đúng chuỗi ID trong ngoặc vuông [ID: ...] ở mục VII, tối đa 4 sản phẩm).`;
 };
 
 let cachedValidModels = null;
 
-// Tự động lấy danh sách Model hợp lệ từ chính tài khoản Google AI Studio của bạn
 const getAvailableGeminiModels = async (apiKey) => {
   if (cachedValidModels && cachedValidModels.length > 0) {
     return cachedValidModels;
@@ -141,30 +193,13 @@ const getAvailableGeminiModels = async (apiKey) => {
   return ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest'];
 };
 
-// Gọi Gemini Multi-Turn Chat API
+// Gọi Gemini Multi-Turn Chat API với native systemInstruction
 const callGeminiConversation = async (apiKey, systemInstruction, history, currentMessage) => {
   const models = await getAvailableGeminiModels(apiKey);
+  const formattedContents = [];
 
-  const formattedContents = [
-    {
-      role: 'user',
-      parts: [
-        {
-          text: `HƯỚNG DẪN HỆ THỐNG & NGHIỆP VỤ BẮT BUỘC:\n${systemInstruction}\n\nHãy ghi nhớ toàn bộ dữ liệu trên và bắt đầu đóng vai Minh Anh (Stylist tại DUAN.STUDIO) để trò chuyện với khách hàng.`
-        }
-      ]
-    },
-    {
-      role: 'model',
-      parts: [
-        {
-          text: 'Mình đã nắm rõ toàn bộ danh mục 20 sản phẩm, bảng size, quy tắc phân biệt đồ Nam/Nữ và chính sách của DUAN.STUDIO. Mình sẵn sàng tư vấn tự nhiên như trên Messenger!'
-        }
-      ]
-    }
-  ];
-
-  const recentHistory = (Array.isArray(history) ? history : []).slice(-10);
+  // Giữ 16 lượt hội thoại gần nhất để hiểu trọn vẹn ngữ cảnh cuộc trò chuyện
+  const recentHistory = (Array.isArray(history) ? history : []).slice(-16);
 
   for (const msg of recentHistory) {
     if (!msg?.text || !String(msg.text).trim()) continue;
@@ -172,15 +207,20 @@ const callGeminiConversation = async (apiKey, systemInstruction, history, curren
     const cleanText = String(msg.text).trim();
 
     const prev = formattedContents[formattedContents.length - 1];
-    if (prev.role === role) {
+    if (prev && prev.role === role) {
       prev.parts[0].text += '\n' + cleanText;
     } else {
       formattedContents.push({ role, parts: [{ text: cleanText }] });
     }
   }
 
+  // Gemini API bắt buộc phần tử đầu tiên trong contents phải có role là 'user'
+  while (formattedContents.length > 0 && formattedContents[0].role !== 'user') {
+    formattedContents.shift();
+  }
+
   const lastTurn = formattedContents[formattedContents.length - 1];
-  if (lastTurn.role !== 'user') {
+  if (!lastTurn || lastTurn.role !== 'user') {
     formattedContents.push({ role: 'user', parts: [{ text: currentMessage }] });
   } else if (!lastTurn.parts[0].text.includes(currentMessage)) {
     lastTurn.parts[0].text += '\n' + currentMessage;
@@ -195,10 +235,13 @@ const callGeminiConversation = async (apiKey, systemInstruction, history, curren
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: systemInstruction }]
+          },
           contents: formattedContents,
           generationConfig: {
-            temperature: 0.85,
-            topP: 0.95,
+            temperature: 0.35, // Hạ nhiệt độ để bot suy luận chuẩn xác và tuân thủ phạm vi 100%
+            topP: 0.9,
             maxOutputTokens: 1000
           }
         })
@@ -228,6 +271,7 @@ router.post('/', async (req, res) => {
     const { message = '', history = [], clientApiKey = '' } = req.body;
     const cleanMsg = String(message).trim();
 
+    // 1. Lệnh huấn luyện nóng (/train)
     if (cleanMsg.toLowerCase().startsWith('/train ')) {
       const parts = cleanMsg.slice(7).split('|');
       if (parts.length < 2) {
@@ -247,6 +291,22 @@ router.post('/', async (req, res) => {
       return res.json({ reply: okMsg, messages: [okMsg], suggestedProducts: [] });
     }
 
+    // 2. Bắt nhanh yêu cầu gặp nhân viên / liên hệ Zalo ngay lập tức
+    if (isHumanHandoffRequest(cleanMsg)) {
+      const handoffMessages = [
+        'Dạ mình gửi bạn thông tin kết nối trực tiếp với chuyên viên tư vấn và quản lý của DUAN.STUDIO nhé ạ!',
+        `👉 **Chat Zalo trực tiếp:** ${ZALO_LINK}\n📞 **Zalo / Hotline:** ${ZALO_PHONE} (08:30 – 22:00)\nBạn bấm thẳng vào đường link Zalo phía trên để nhân viên bên mình hỗ trợ bạn ngay lập tức nha!`
+      ];
+      return res.json({
+        reply: handoffMessages.join('\n\n'),
+        messages: handoffMessages,
+        suggestedProducts: [],
+        zaloLink: ZALO_LINK,
+        zaloPhone: ZALO_PHONE,
+        aiMode: 'Chuyển tiếp Zalo'
+      });
+    }
+
     const [products, coupons] = await Promise.all([
       Product.find().sort({ createdAt: -1 }).catch(() => []),
       Coupon.find({ isActive: true }).catch(() => [])
@@ -259,7 +319,6 @@ router.post('/', async (req, res) => {
       trackedOrder = await Order.findOne({ orderCode: Number(orderMatch[1]) }).catch(() => null);
     }
 
-    // Tự động đọc trực tiếp từ giao diện HOẶC đọc nóng lại file backend/.env
     let envFileKey = '';
     try {
       const envPath = path.join(__dirname, '../.env');
@@ -308,7 +367,15 @@ router.post('/', async (req, res) => {
 
     let cleanReplyText = geminiResult.rawText;
     let selectedProducts = [];
+    let hasZaloHandoff = false;
 
+    // Kiểm tra nếu Gemini tự kích hoạt cờ chuyển tiếp Zalo
+    if (/\[HANDOFF_ZALO\]/i.test(cleanReplyText)) {
+      hasZaloHandoff = true;
+      cleanReplyText = cleanReplyText.replace(/\[HANDOFF_ZALO\]/gi, '').trim();
+    }
+
+    // Trích xuất thẻ [PRODUCTS: ...] hoặc tự động khớp tên sản phẩm nếu AI nhắc tới
     const prodTagMatch = cleanReplyText.match(/\[PRODUCTS:\s*([^\]]+)\]/i);
     if (prodTagMatch) {
       const rawIds = prodTagMatch[1]
@@ -317,30 +384,44 @@ router.post('/', async (req, res) => {
         .filter(Boolean);
 
       selectedProducts = products
-        .filter((p) => rawIds.includes(String(p._id)))
-        .slice(0, 4)
-        .map((p) => ({
-          _id: p._id,
-          name: p.name,
-          category: p.category,
-          image: p.images?.[0] || '',
-          price: p.variants?.[0]?.price || 0,
-          sizes: [...new Set((p.variants || []).map((v) => v.size))].join(', ')
-        }));
+        .filter((p) => rawIds.some((id) => id.includes(String(p._id)) || String(p._id).includes(id)))
+        .slice(0, 4);
 
       cleanReplyText = cleanReplyText.replace(/\[PRODUCTS:\s*([^\]]+)\]/gi, '').trim();
     }
+
+    // Fallback thông minh: Nếu Gemini nhắc chính xác tên sản phẩm trong câu trả lời mà quên gắn tag [PRODUCTS], tự động đính kèm thẻ sản phẩm đó
+    if (selectedProducts.length === 0) {
+      const lowerReply = cleanReplyText.toLowerCase();
+      selectedProducts = products
+        .filter((p) => p.name && lowerReply.includes(p.name.toLowerCase()))
+        .slice(0, 4);
+    }
+
+    const formattedSuggestedProducts = selectedProducts.map((p) => ({
+      _id: p._id,
+      name: p.name,
+      category: p.category,
+      image: p.images?.[0] || '',
+      price: p.variants?.[0]?.price || 0,
+      sizes: [...new Set((p.variants || []).map((v) => v.size))].join(', ')
+    }));
 
     const bubbles = cleanReplyText
       .split(/\|\|\||\n\n+/)
       .map((b) => b.trim())
       .filter(Boolean);
 
+    if (hasZaloHandoff && !cleanReplyText.includes(ZALO_LINK)) {
+      bubbles.push(`👉 Kết nối Zalo trực tiếp với nhân viên hỗ trợ tại đây: ${ZALO_LINK}`);
+    }
+
     return res.json({
       reply: bubbles.join('\n\n'),
       messages: bubbles.length > 0 ? bubbles : [cleanReplyText],
-      suggestedProducts: selectedProducts,
+      suggestedProducts: formattedSuggestedProducts,
       trackedOrder,
+      zaloLink: hasZaloHandoff ? ZALO_LINK : null,
       aiMode: `Gemini (${geminiResult.model})`
     });
   } catch (error) {
