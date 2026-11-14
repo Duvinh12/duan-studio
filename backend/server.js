@@ -34,6 +34,19 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/payos', payosRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 
+const path = require('path');
+
+// ... Các dòng app.use('/api/products', ...), app.use('/api/chatbot', ...) giữ nguyên ở trên ...
+
+// Phục vụ giao diện React đã build từ thư mục frontend/dist
+const frontendDistPath = path.join(__dirname, '../frontend/dist');
+app.use(express.static(frontendDistPath));
+
+// Mọi đường dẫn không phải /api đều trả về index.html để React Router tự điều hướng (tránh lỗi 404 khi F5)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(frontendDistPath, 'index.html'));
+});
+
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/duan_fashion';
 
